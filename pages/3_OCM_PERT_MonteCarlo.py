@@ -167,6 +167,98 @@ df = st.data_editor(
 # ============================================================
 edges = DEFAULT_EDGES  # si quieres, derivar por nombre/regex
 
+# --- NUEVO: utilidades de PDF ---
+from io import BytesIO
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import cm
+from reportlab.pdfgen import canvas
+from reportlab.lib import colors
+
+def _png_from_fig(fig, scale=2):
+    """Devuelve bytes PNG desde un fig de plotly (requiere kaleido)."""
+    return fig.to_image(format="png", scale=scale)
+
+def build_pdf_report(
+    project_title: str,
+    complexity_label: str | None,
+    unidad: str,
+    horas_por_dia: float,
+    team_n: int,
+    team_eff: float,
+    n_iter: int,
+    p50_d: float, p80_d: float, mean_d: float,
+    p50_h: float, p80_h: float, mean_h: float,
+    eff_mean_h: float, eff_p80_h: float,
+    hist_png: bytes, cdf_png: bytes
+) -> bytes:
+    """Crea el PDF en memoria con ReportLab y devuelve los bytes."""
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    W, H = A4
+    x_margin, y_margin = 2*cm, 2*cm
+    y = H - y_margin
+
+    # Encabezado
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(x_margin, y, "OCM — PERT + Monte Carlo (Reporte)")
+    y -= 0.8*cm
+
+    c.setFont("Helvetica", 10)
+    c.drawString(x_margin, y, f"Proyecto: {project_title or 's/d'}")
+    y -= 0.5*cm
+    c.drawString(x_margin, y, f"Complejidad: {complexity_label or 'Sin ajuste'}")
+    y -= 0.5*cm
+    c.drawString(x_margin, y, f"Unidad: {unidad}  |  Horas/día: {horas_por_dia}")
+    y -= 0.5*cm
+    c.drawString(x_margin, y, f"Consultores OCM: {team_n}  |  Eficiencia: {team_eff:.2f}  |  Iteraciones: {n_iter}")
+    y -= 0.8*cm
+
+    # Métricas
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(x_margin, y, "Resultados de la simulación")
+    y -= 0.6*cm
+    c.setFont("Helvetica", 10)
+    c.drawString(x_margin, y, f"P50:  {p50_d:.2f} días  /  {p50_h:.0f} horas")
+    y -= 0.4*cm
+    c.drawString(x_margin, y, f"P80:  {p80_d:.2f} días  /  {p80_h:.0f} horas")
+    y -= 0.4*cm
+    c.drawString(x_margin, y, f"Media:{mean_d:.2f} días  /  {mean_h:.0f} horas")
+    y -= 0.4*cm
+    c.drawString(x_margin, y, f"Esfuerzo medio: {eff_mean_h:.0f} h   |   Esfuerzo P80: {eff_p80_h:.0f} h")
+    y -= 0.8*cm
+
+    # Gráfico 1: Histograma
+    try:
+        from reportlab.lib.utils import ImageReader
+        hist_img = ImageReader(BytesIO(hist_png))
+        img_w = W - 2*x_margin
+        img_h = 7*cm
+        c.drawImage(hist_img, x_margin, y - img_h, width=img_w, height=img_h, preserveAspectRatio=True, mask='auto')
+        y -= img_h + 0.5*cm
+    except Exception:
+        c.setFillColor(colors.red)
+        c.drawString(x_margin, y, "[No se pudo incrustar el histograma]")
+        c.setFillColor(colors.black)
+        y -= 0.5*cm
+
+    # Gráfico 2: Curva S
+    try:
+        cdf_img = ImageReader(BytesIO(cdf_png))
+        img_w = W - 2*x_margin
+        img_h = 7*cm
+        c.drawImage(cdf_img, x_margin, y - img_h, width=img_w, height=img_h, preserveAspectRatio=True, mask='auto')
+        y -= img_h + 0.5*cm
+    except Exception:
+        c.setFillColor(colors.red)
+        c.drawString(x_margin, y, "[No se pudo incrustar la Curva S]")
+        c.setFillColor(colors.black)
+        y -= 0.5*cm
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+    return buffer.getvalue()
+
 # ============================================================
 # Simulación
 # ============================================================
@@ -280,6 +372,31 @@ if run:
         file_name="ocm_pert_montecarlo.csv",
         mime="text/csv"
     )
+
+# --- NUEVO: Exportar a PDF ---
+try:
+    hist_png = _png_from_fig(fig, scale=2)
+    cdf_png  = _png_from_fig(fig2, scale=2)
+
+    pdf_bytes = build_pdf_report(
+        project_title=st.session_state.get("current_project_name",""),
+        complexity_label=complexity_label,
+        unidad=unidad, horas_por_dia=horas_por_dia,
+        team_n=team_n, team_eff=team_eff, n_iter=n_iter,
+        p50_d=p50_d, p80_d=p80_d, mean_d=mean_d,
+        p50_h=p50_h, p80_h=p80_h, mean_h=mean_h,
+        eff_mean_h=eff_mean_h, eff_p80_h=eff_p80_h,
+        hist_png=hist_png, cdf_png=cdf_png
+    )
+
+    st.download_button(
+        "🖨️ Descargar reporte PDF",
+        data=pdf_bytes,
+        file_name="OCM_PERT_MonteCarlo.pdf",
+        mime="application/pdf"
+    )
+except Exception as e:
+    st.warning("Para exportar PDF, verifica que `kaleido` y `reportlab` estén instalados en tu app.")
 
 else:
     st.info("Configura parámetros y pulsa **Calcular Monte Carlo**.")
