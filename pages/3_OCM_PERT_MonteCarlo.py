@@ -1,0 +1,285 @@
+# pages/3_OCM_PERT_MonteCarlo.py
+# -*- coding: utf-8 -*-
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+
+# ============================================================
+# Utilidades Beta-PERT
+# ============================================================
+def beta_pert_sample(o, m, p, lamb=4.0, size=1, rng=None):
+    """
+    Muestra desde una Beta-PERT (esfuerzo/tiempo >= 0).
+    lamb=4 recomienda ponderar el 'más probable' (M).
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+    o, m, p = float(o), float(m), float(p)
+    if p <= o or m < o or m > p:
+        # fallback determinista
+        return np.full(size, (o + 4*m + p) / 6.0)
+    mean = (o + lamb*m + p) / (lamb + 2.0)
+    # Forma estandarizada de parámetros alfa/beta
+    # alpha = 1 + lamb*(m - o)/(p - o)
+    # beta  = 1 + lamb*(p - m)/(p - o)
+    alpha = 1.0 + lamb * (m - o) / (p - o)
+    beta = 1.0 + lamb * (p - m) / (p - o)
+    # muestrear en [0,1] y escalar a [o,p]
+    x = rng.beta(alpha, beta, size=size)
+    return o + x * (p - o)
+
+def pert_te(o, m, p):
+    return (o + 4*m + p) / 6.0
+
+def pert_sigma(o, p):
+    return (p - o) / 6.0
+
+# ============================================================
+# Datos base: actividades OCM (editable)
+# Esfuerzo O/M/P en HORAS y % paralelizable (0..1)
+# ============================================================
+DEFAULT_ACTIVITIES = [
+    {"Actividad":"Estrategia y plan OCM",                  "O":16, "M":24, "P":40,  "Paralelizable":0.3},
+    {"Actividad":"Impactos y stakeholders",                "O":24, "M":40, "P":70,  "Paralelizable":0.5},
+    {"Actividad":"Alineación de sponsors",                 "O":10, "M":20, "P":40,  "Paralelizable":0.2},
+    {"Actividad":"Plan de comunicaciones (diseño)",        "O":16, "M":32, "P":60,  "Paralelizable":0.6},
+    {"Actividad":"Plan de capacitación (diseño)",          "O":16, "M":32, "P":56,  "Paralelizable":0.6},
+    {"Actividad":"Readiness y piloto",                     "O":24, "M":48, "P":80,  "Paralelizable":0.5},
+    {"Actividad":"Ejecución: comunicaciones + training",   "O":40, "M":80, "P":140, "Paralelizable":0.7},
+    {"Actividad":"Refuerzo y seguimiento",                 "O":16, "M":32, "P":64,  "Paralelizable":0.5},
+]
+
+# Dependencias simples (índices sobre DEFAULT_ACTIVITIES)
+# Puedes ajustarlas a tu gobernanza. Ejemplo:
+# 0: Estrategia/plan → habilita casi todo; 1,2,3,4 pueden iniciar tras 0
+# Readiness (5) tras 1,3,4; Ejecución (6) tras 3,4,5; Refuerzo (7) tras 6
+DEFAULT_EDGES = [
+    (0,1),(0,2),(0,3),(0,4),
+    (1,5),(3,5),(4,5),
+    (5,6),
+    (6,7)
+]
+
+# ============================================================
+# Sidebar: parámetros
+# ============================================================
+st.sidebar.markdown("## 🧪 OCM PERT — Monte Carlo")
+
+unidad = st.sidebar.selectbox("Unidad de captura", ["Horas","Días"], index=0)
+horas_por_dia = st.sidebar.number_input("Horas laborables por día", 1.0, 24.0, 8.0, 0.5)
+
+def to_hours(x): return x if unidad=="Horas" else x*horas_por_dia
+def to_days(x):  return x/horas_por_dia if unidad=="Horas" else x
+
+n_iter = st.sidebar.slider("Iteraciones Monte Carlo", min_value=200, max_value=5000, value=1500, step=100)
+team_n = st.sidebar.slider("Consultores OCM", min_value=1, max_value=15, value=2, step=1)
+team_eff = st.sidebar.slider("Eficiencia de equipo (0–1)", 0.1, 1.0, 0.85, 0.01,
+                             help="Eficiencia agregada: coord., handoffs, reuniones")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### Ajuste por complejidad")
+
+# Factores por complejidad (ajustan ESFUERZO)
+factor_defaults = {"Eclipse":1.00, "Galaxy":1.15, "Quantum":1.30, "Nova":1.60}
+factors = {}
+for k,v in factor_defaults.items():
+    factors[k] = st.sidebar.number_input(f"Factor {k}", 0.5, 3.0, float(v), 0.05, key=f"fac_{k}")
+
+source = st.sidebar.radio(
+    "Fuente de complejidad",
+    ["Sin ajuste","Usar último cálculo","Usar proyecto guardado","Seleccionar manualmente"],
+    index=1
+)
+
+complexity_label = None
+if source == "Usar último cálculo":
+    complexity_label = st.session_state.get("complexity_label")
+    if complexity_label:
+        st.sidebar.success(f"Último: **{complexity_label}**")
+    else:
+        st.sidebar.warning("No hay cálculo previo en esta sesión.")
+        source = "Sin ajuste"
+
+elif source == "Usar proyecto guardado":
+    projects = st.session_state.get("projects", [])
+    if projects:
+        choice = st.sidebar.selectbox(
+            "Proyecto",
+            [f"{p['name']} — {p['label']}" for p in projects]
+        )
+        if choice:
+            idx = [f"{p['name']} — {p['label']}" for p in projects].index(choice)
+            complexity_label = projects[idx]["label"]
+    else:
+        st.sidebar.warning("No hay proyectos guardados.")
+        source = "Sin ajuste"
+
+elif source == "Seleccionar manualmente":
+    complexity_label = st.sidebar.selectbox("Clasificación", ["Eclipse","Galaxy","Quantum","Nova"], index=1)
+
+st.sidebar.caption("Ajuste de esfuerzo para reflejar riesgo de adopción y fricción organizacional.")
+
+# ============================================================
+# Encabezado y explicación
+# ============================================================
+st.title("🧪 OCM — PERT + Monte Carlo (duración y esfuerzo)")
+
+with st.expander("¿Qué modelamos aquí?"):
+    st.markdown(
+        "- Estimamos **esfuerzo OCM** con **PERT (O, M, P)** por actividad y "
+        "lo convertimos a **duraciones** considerando **n consultores**, "
+        "**eficiencia de equipo** y el **% de paralelización** propio de cada tarea.\n"
+        "- El esfuerzo se puede **ajustar por complejidad** del proyecto "
+        "(Eclipse/Galaxy/Quantum/Nova) para reflejar incertidumbre y fricción humana, "
+        "donde la evidencia sugiere que gestionar bien el cambio mejora el desempeño en "
+        "objetivos/tiempos/presupuesto. [3](https://www.proscieurope.co.uk/hubfs/Best-Practices-in-Change-Management-12th-Edition-Executive-Summary.pdf?hsLang=en)\n"
+        "- **PERT** usa tres estimaciones y el tiempo esperado **TE=(O+4M+P)/6**, con "
+        "**σ=(P−O)/6**, útil cuando la duración es **incierta**. [1](https://projectmanagers.net/pert-formula-examples-pert-calculator/)[2](https://www.calculatoratoz.com/es/pert-expected-time-calculator/Calc-2115)\n"
+        "- Puedes seguir usando **CPM/Gantt** para orquestar dependencias y ruta crítica del "
+        "programa general; aquí nos enfocamos en el **paquete OCM** con incertidumbre. [4](https://keydifferences.com/difference-between-pert-and-cpm.html)[5](https://crm.org/news/pert-vs-cpm)"
+    )
+
+# ============================================================
+# Tabla editable de actividades
+# ============================================================
+st.markdown("### 📋 Actividades OCM (edita O/M/P y % paralelizable)")
+
+if "ocm_df" not in st.session_state:
+    st.session_state["ocm_df"] = pd.DataFrame(DEFAULT_ACTIVITIES).copy()
+
+df = st.data_editor(
+    st.session_state["ocm_df"],
+    num_rows="dynamic",
+    use_container_width=True,
+    column_config={
+        "Actividad": st.column_config.TextColumn(width="large"),
+        "O": st.column_config.NumberColumn(help=f"Optimista ({unidad.lower()})"),
+        "M": st.column_config.NumberColumn(help=f"Más probable ({unidad.lower()})"),
+        "P": st.column_config.NumberColumn(help=f"Pesimista ({unidad.lower()})"),
+        "Paralelizable": st.column_config.NumberColumn(help="0..1"),
+    },
+    key="ocm_editor"
+)
+
+# ============================================================
+# Dependencias (simplificadas) - no editable en UI por ahora
+# ============================================================
+edges = DEFAULT_EDGES  # si quieres, derivar por nombre/regex
+
+# ============================================================
+# Simulación
+# ============================================================
+st.markdown("### ▶ Ejecutar Simulación")
+run = st.button("Calcular Monte Carlo")
+
+if run:
+    rng = np.random.default_rng(12345)
+    n = len(df)
+    # mapa índice
+    idx_map = {i: i for i in range(n)}  # trivial si no editas orden
+    # Si cambiaste actividades/orden, asegúrate de que edges sigan siendo válidas
+    # En caso contrario, puedes ignorar edges y sumar duraciones como serie (sin dependencias).
+
+    # Preparar arrays
+    O = to_hours(df["O"].values.astype(float))
+    M = to_hours(df["M"].values.astype(float))
+    P = to_hours(df["P"].values.astype(float))
+    PAR = df["Paralelizable"].values.clip(0,1)
+
+    # Ajuste por complejidad (en ESFUERZO)
+    if complexity_label in factors:
+        adj = factors[complexity_label]
+    else:
+        adj = 1.0
+
+    # Muestreos
+    samples_effort = np.vstack([
+        beta_pert_sample(O[i], M[i], P[i], size=n_iter, rng=rng) * adj
+        for i in range(n)
+    ])  # shape: (n, n_iter) en HORAS
+
+    # Capacidad efectiva por actividad (en consultores)
+    # Regla: eff_team_i = 1 + (team_n - 1) * PAR[i] * team_eff
+    eff_team = 1.0 + (team_n - 1.0) * PAR * team_eff
+    eff_team = np.maximum(eff_team, 1.0)  # al menos 1
+
+    # Convertir ESFUERZO a DURACIÓN por actividad (en DÍAS)
+    dur_days = samples_effort / (eff_team[:,None] * horas_por_dia)
+
+    # Programar con dependencias: cálculo de EF (Early Finish) por iteración
+    # Si no quieres dependencias, usa project_duration = dur_days.sum(axis=0)
+    preds = {i: [] for i in range(n)}
+    for u,v in edges:
+        if u < n and v < n: preds[v].append(u)
+
+    # Topo order trivial (asumimos orden natural y edges consistentes)
+    order = list(range(n))
+    EF = np.zeros((n, n_iter))
+    for i in order:
+        if preds[i]:
+            ES_i = np.max(EF[preds[i], :], axis=0)  # earliest start
+        else:
+            ES_i = 0.0
+        EF[i,:] = ES_i + dur_days[i,:]
+
+    project_duration_days = np.max(EF, axis=0)
+    total_effort_hours = np.sum(samples_effort, axis=0)
+
+    # Estadísticos
+    p50_d = float(np.percentile(project_duration_days, 50))
+    p80_d = float(np.percentile(project_duration_days, 80))
+    mean_d = float(np.mean(project_duration_days))
+
+    p50_h = p50_d * horas_por_dia
+    p80_h = p80_d * horas_por_dia
+    mean_h = mean_d * horas_por_dia
+
+    # ======= Resultados =======
+    st.markdown("### 📈 Distribución de duración (días)")
+    fig = px.histogram(x=project_duration_days, nbins=40, opacity=0.8)
+    fig.add_vline(p50_d, line_width=2, line_dash="dash", line_color="green")
+    fig.add_vline(p80_d, line_width=2, line_dash="dash", line_color="orange")
+    fig.update_layout(xaxis_title="Duración del paquete OCM (días)", yaxis_title="Frecuencia")
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("### 📈 Curva S (CDF)")
+    xs = np.sort(project_duration_days)
+    ys = np.arange(1, len(xs)+1) / len(xs)
+    fig2 = px.line(x=xs, y=ys)
+    fig2.add_vline(p50_d, line_width=2, line_dash="dash", line_color="green")
+    fig2.add_vline(p80_d, line_width=2, line_dash="dash", line_color="orange")
+    fig2.update_layout(xaxis_title="Duración (días)", yaxis_title="Probabilidad acumulada")
+    st.plotly_chart(fig2, use_container_width=True)
+
+    # Métricas
+    c1, c2, c3 = st.columns(3)
+    c1.metric("P50 (días / horas)", f"{p50_d:.2f} / {p50_h:.0f}")
+    c2.metric("P80 (días / horas)", f"{p80_d:.2f} / {p80_h:.0f}")
+    c3.metric("Media (días / horas)", f"{mean_d:.2f} / {mean_h:.0f}")
+
+    # Esfuerzo (útil para dimensionar consultores)
+    st.markdown("### 👥 Esfuerzo total (para dimensionamiento)")
+    eff_mean_h = float(np.mean(total_effort_hours))
+    eff_p80_h  = float(np.percentile(total_effort_hours, 80))
+    e1, e2 = st.columns(2)
+    e1.metric("Esfuerzo medio (horas)", f"{eff_mean_h:.0f}")
+    e2.metric("Esfuerzo P80 (horas)", f"{eff_p80_h:.0f}")
+    st.caption("El esfuerzo OCM sirve para estimar cuántos consultores necesitas y/ó su dedicación.")
+
+    # Descarga
+    st.markdown("### 💾 Descargar simulación (csv)")
+    out = pd.DataFrame({
+        "duration_days": project_duration_days,
+        "duration_hours": project_duration_days * horas_por_dia,
+        "total_effort_hours": total_effort_hours
+    })
+    st.download_button(
+        "📥 Descargar resultados",
+        data=out.to_csv(index=False).encode("utf-8"),
+        file_name="ocm_pert_montecarlo.csv",
+        mime="text/csv"
+    )
+
+else:
+    st.info("Configura parámetros y pulsa **Calcular Monte Carlo**.")
