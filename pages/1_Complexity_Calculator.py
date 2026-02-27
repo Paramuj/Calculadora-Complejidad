@@ -277,6 +277,7 @@ if enviado:
         st.success(f"Proyecto guardado: {new_name}")
 
     # Compartir “último cálculo” con otras páginas
+    st.session_state["current_project_name"] = new_name
     st.session_state["complexity_label"] = etiqueta
     st.session_state["complexity_score"] = float(promedio) if pd.notna(promedio) else None
 
