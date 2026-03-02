@@ -39,26 +39,30 @@ def pert_sigma(o, p):
 # Datos base: actividades OCM (editable)
 # Esfuerzo O/M/P en HORAS y % paralelizable (0..1)
 # ============================================================
-DEFAULT_ACTIVITIES = [
-    {"Actividad":"Estrategia y plan OCM",                  "O":16, "M":24, "P":40,  "Paralelizable":0.3},
-    {"Actividad":"Impactos y stakeholders",                "O":24, "M":40, "P":70,  "Paralelizable":0.5},
-    {"Actividad":"Alineación de sponsors",                 "O":10, "M":20, "P":40,  "Paralelizable":0.2},
-    {"Actividad":"Plan de comunicaciones (diseño)",        "O":16, "M":32, "P":60,  "Paralelizable":0.6},
-    {"Actividad":"Plan de capacitación (diseño)",          "O":16, "M":32, "P":56,  "Paralelizable":0.6},
-    {"Actividad":"Readiness y piloto",                     "O":24, "M":48, "P":80,  "Paralelizable":0.5},
-    {"Actividad":"Ejecución: comunicaciones + training",   "O":40, "M":80, "P":140, "Paralelizable":0.7},
-    {"Actividad":"Refuerzo y seguimiento",                 "O":16, "M":32, "P":64,  "Paralelizable":0.5},
-]
+TIPOS_ACTIVIDAD = ["Estándar/Operativa", "Dependiente de Terceros", "Estratégica/Creativa"]
+FASES_OCM = ["FASE 1: Estrategia Inicial", "FASE 2: Workshops y Despliegue", "FASE 3: Contención y Coaching", "FASE 4: Ejecución Recurrente"]
 
-# Dependencias simples (índices sobre DEFAULT_ACTIVITIES)
-# Puedes ajustarlas a tu gobernanza. Ejemplo:
-# 0: Estrategia/plan → habilita casi todo; 1,2,3,4 pueden iniciar tras 0
-# Readiness (5) tras 1,3,4; Ejecución (6) tras 3,4,5; Refuerzo (7) tras 6
-DEFAULT_EDGES = [
-    (0,1),(0,2),(0,3),(0,4),
-    (1,5),(3,5),(4,5),
-    (5,6),
-    (6,7)
+DEFAULT_ACTIVITIES = [
+    # FASE 1
+    {"Actividad":"Newsletter", "Fase": FASES_OCM[0], "Tipo de Actividad": TIPOS_ACTIVIDAD[0], "M": 8, "Paralelizable": 0.8, "Proyectos": 1},
+    {"Actividad":"Playbook Design", "Fase": FASES_OCM[0], "Tipo de Actividad": TIPOS_ACTIVIDAD[2], "M": 40, "Paralelizable": 0.2, "Proyectos": 1},
+    {"Actividad":"Training Planning", "Fase": FASES_OCM[0], "Tipo de Actividad": TIPOS_ACTIVIDAD[2], "M": 24, "Paralelizable": 0.4, "Proyectos": 1},
+    {"Actividad":"Communication Plan", "Fase": FASES_OCM[0], "Tipo de Actividad": TIPOS_ACTIVIDAD[2], "M": 20, "Paralelizable": 0.4, "Proyectos": 1},
+    {"Actividad":"Design Session", "Fase": FASES_OCM[0], "Tipo de Actividad": TIPOS_ACTIVIDAD[1], "M": 16, "Paralelizable": 0.3, "Proyectos": 1},
+    # FASE 2
+    {"Actividad":"Preparation Workshop", "Fase": FASES_OCM[1], "Tipo de Actividad": TIPOS_ACTIVIDAD[1], "M": 16, "Paralelizable": 0.5, "Proyectos": 1},
+    {"Actividad":"Report Workshop", "Fase": FASES_OCM[1], "Tipo de Actividad": TIPOS_ACTIVIDAD[1], "M": 24, "Paralelizable": 0.5, "Proyectos": 1},
+    {"Actividad":"Sponsor Stakeholder Mtg", "Fase": FASES_OCM[1], "Tipo de Actividad": TIPOS_ACTIVIDAD[1], "M": 8, "Paralelizable": 0.1, "Proyectos": 1},
+    {"Actividad":"Training Execution", "Fase": FASES_OCM[1], "Tipo de Actividad": TIPOS_ACTIVIDAD[0], "M": 40, "Paralelizable": 0.6, "Proyectos": 1},
+    {"Actividad":"Communication Execution", "Fase": FASES_OCM[1], "Tipo de Actividad": TIPOS_ACTIVIDAD[0], "M": 32, "Paralelizable": 0.7, "Proyectos": 1},
+    # FASE 3
+    {"Actividad":"Sponsor Involved & Coaching", "Fase": FASES_OCM[2], "Tipo de Actividad": TIPOS_ACTIVIDAD[2], "M": 30, "Paralelizable": 0.2, "Proyectos": 1},
+    {"Actividad":"Containment Strategies", "Fase": FASES_OCM[2], "Tipo de Actividad": TIPOS_ACTIVIDAD[2], "M": 24, "Paralelizable": 0.3, "Proyectos": 1},
+    {"Actividad":"Follow-up Communications", "Fase": FASES_OCM[2], "Tipo de Actividad": TIPOS_ACTIVIDAD[0], "M": 16, "Paralelizable": 0.8, "Proyectos": 1},
+    # FASE 4
+    {"Actividad":"Recurring Comms", "Fase": FASES_OCM[3], "Tipo de Actividad": TIPOS_ACTIVIDAD[0], "M": 16, "Paralelizable": 0.9, "Proyectos": 1},
+    {"Actividad":"Recurring Sponsor Mtg", "Fase": FASES_OCM[3], "Tipo de Actividad": TIPOS_ACTIVIDAD[1], "M": 8, "Paralelizable": 0.1, "Proyectos": 1},
+    {"Actividad":"Recurring Training", "Fase": FASES_OCM[3], "Tipo de Actividad": TIPOS_ACTIVIDAD[0], "M": 24, "Paralelizable": 0.7, "Proyectos": 1},
 ]
 
 # ============================================================
@@ -143,37 +147,54 @@ with st.expander("¿Qué modelamos aquí?"):
 # ============================================================
 # Tabla editable de actividades
 # ============================================================
-st.markdown("### 📋 Actividades OCM (edita O/M/P y % paralelizable)")
+st.markdown("### 📋 Actividades OCM (edita M, Tipo, Fase, etc.)")
 
 if "ocm_df" not in st.session_state:
     st.session_state["ocm_df"] = pd.DataFrame(DEFAULT_ACTIVITIES).copy()
 
-df = st.data_editor(
+edited_df = st.data_editor(
     st.session_state["ocm_df"],
     num_rows="dynamic",
     use_container_width=True,
     column_config={
         "Actividad": st.column_config.TextColumn(width="large"),
-        "O": st.column_config.NumberColumn(help=f"Optimista ({unidad.lower()})"),
-        "M": st.column_config.NumberColumn(help=f"Más probable ({unidad.lower()})"),
-        "P": st.column_config.NumberColumn(help=f"Pesimista ({unidad.lower()})"),
-        "Paralelizable": st.column_config.NumberColumn(help="0..1"),
+        "Fase": st.column_config.SelectboxColumn("Fase", options=FASES_OCM, required=True),
+        "Tipo de Actividad": st.column_config.SelectboxColumn("Tipo de Actividad", options=TIPOS_ACTIVIDAD, required=True),
+        "M": st.column_config.NumberColumn(f"M ({unidad})", help="Estimación de esfuerzo 'Más Probable' en la unidad seleccionada.", min_value=0, format="%d"),
+        "Paralelizable": st.column_config.NumberColumn("Paralelizable", help="Fracción del trabajo que puede hacerse en paralelo (0-1).", min_value=0.0, max_value=1.0, format="%.2f"),
+        "Proyectos": st.column_config.NumberColumn("Proyectos", help="Nº de proyectos a los que aplica. Multiplica el esfuerzo.", min_value=1, step=1, format="%d"),
     },
     key="ocm_editor"
 )
 
-# ============================================================
-# Dependencias (simplificadas) - no editable en UI por ahora
-# ============================================================
-edges = DEFAULT_EDGES  # si quieres, derivar por nombre/regex
+# --- Lógica de cálculo de O y P ---
+FACTORES_OP = {
+    "Estándar/Operativa":    {"O": 0.90, "P": 1.30},
+    "Dependiente de Terceros": {"O": 0.85, "P": 1.75},
+    "Estratégica/Creativa":  {"O": 0.80, "P": 2.00},
+}
+
+df = edited_df.copy()
+
+# Calcular O y P basado en M y Tipo de Actividad
+df["O"] = df.apply(lambda row: row["M"] * FACTORES_OP[row["Tipo de Actividad"]]["O"], axis=1)
+df["P"] = df.apply(lambda row: row["M"] * FACTORES_OP[row["Tipo de Actividad"]]["P"], axis=1)
+
+# Ajustar por número de proyectos
+df["O"] = df["O"] * df["Proyectos"]
+df["M"] = df["M"] * df["Proyectos"]
+df["P"] = df["P"] * df["Proyectos"]
+
+st.markdown("#### Estimaciones O/M/P calculadas (en horas)")
+st.dataframe(
+    df[["Actividad", "Fase", "Proyectos", "O", "M", "P"]].style.format(
+        {"O": "{:.1f}", "M": "{:.1f}", "P": "{:.1f}"}
+    ),
+    use_container_width=True,
+    hide_index=True
+)
 
 # --- NUEVO: utilidades de PDF ---
-from io import BytesIO
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import cm
-from reportlab.pdfgen import canvas
-from reportlab.lib import colors
-
 def _png_from_fig(fig, scale=2):
     """Devuelve bytes PNG desde un fig de plotly (requiere kaleido)."""
     return fig.to_image(format="png", scale=scale)
@@ -192,6 +213,13 @@ def build_pdf_report(
     hist_png: bytes, cdf_png: bytes
 ) -> bytes:
     """Crea el PDF en memoria con ReportLab y devuelve los bytes."""
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    from reportlab.pdfgen import canvas
+    from reportlab.lib import colors
+    from reportlab.lib.utils import ImageReader
+
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     W, H = A4
@@ -229,7 +257,6 @@ def build_pdf_report(
 
     # Gráfico 1: Histograma
     try:
-        from reportlab.lib.utils import ImageReader
         hist_img = ImageReader(BytesIO(hist_png))
         img_w = W - 2*x_margin
         img_h = 7*cm
@@ -268,10 +295,18 @@ run = st.button("Calcular Monte Carlo")
 if run:
     rng = np.random.default_rng(12345)
     n = len(df)
-    # mapa índice
-    idx_map = {i: i for i in range(n)}  # trivial si no editas orden
-    # Si cambiaste actividades/orden, asegúrate de que edges sigan siendo válidas
-    # En caso contrario, puedes ignorar edges y sumar duraciones como serie (sin dependencias).
+
+    # --- Generación dinámica de dependencias por fase ---
+    fases_ordenadas = sorted(list(df["Fase"].unique()), key=lambda x: FASES_OCM.index(x))
+    act_por_fase = {fase: df[df["Fase"] == fase].index.tolist() for fase in fases_ordenadas}
+
+    edges = []
+    for i in range(len(fases_ordenadas) - 1):
+        fase_predecesora = fases_ordenadas[i]
+        fase_sucesora = fases_ordenadas[i+1]
+        for pred_idx in act_por_fase[fase_predecesora]:
+            for succ_idx in act_por_fase[fase_sucesora]:
+                edges.append((pred_idx, succ_idx))
 
     # Preparar arrays
     O = to_hours(df["O"].values.astype(float))
