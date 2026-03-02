@@ -165,4 +165,4 @@ colF.metric("TE ajustado (horas)", f"{total_TE_adj_d*horas_por_dia:.2f}")
 # ===========================
 st.markdown("### 💾 Exportar")
 csv = df.to_csv(index=False).encode("utf-8")
-st.download_button("📥 Descargar CSV (actividades)", data=csv, file_name="pert_estimacion.csv", mime="text/csv")
+st.download_button("📥 Descargar CSV (actividades)", data=csv, file_name="pert_estimacion.csv", mime="text/csv")    

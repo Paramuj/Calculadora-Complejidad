@@ -246,7 +246,7 @@ if enviado:
     color_badge = {"Requerido":"#C62828","Recomendado":"#EF6C00","Opcional":"#2E7D32","Indeterminado":"#607D8B"}.get(nivel,"#607D8B")
     st.markdown(f"<div style='padding:10px;border-radius:8px;border:1px solid {color_badge}33'>"
                 f"<span style='background:{color_badge};color:white;padding:4px 8px;border-radius:6px;font-weight:700;'> {nivel} </span>"
-                f"<div style='margin-top:8px'>{detalle}</div></div>", unsafe_allow_html=True)
+                f"<div style='margin-block-start:8px'>{detalle}</div></div>", unsafe_allow_html=True)
     if disparadores: st.caption("Disparadores detectados: " + " · ".join(disparadores))
 
     # --- Descargas ---
