@@ -155,6 +155,7 @@ if "ocm_df" not in st.session_state:
 edited_df = st.data_editor(
     st.session_state["ocm_df"],
     num_rows="dynamic",
+    column_order=("Proyectos", "Actividad", "Fase", "Tipo de Actividad", "M", "Paralelizable"),
     use_container_width=True,
     column_config={
         "Actividad": st.column_config.TextColumn(width="large"),
@@ -241,17 +242,34 @@ def build_pdf_report(
     c.drawString(x_margin, y, f"Consultores OCM: {team_n}  |  Eficiencia: {team_eff:.2f}  |  Iteraciones: {n_iter}")
     y -= 0.8*cm
 
+    # --- NUEVO: Resumen Ejecutivo ---
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(x_margin, y, "Resumen Ejecutivo")
+    y -= 0.6*cm
+    c.setFont("Helvetica", 10)
+    line_height = 0.45 * cm
+    text_lines = [
+        f"La simulación de {n_iter:,} escenarios indica una probabilidad del 50% (mediana) de completar el paquete OCM en",
+        f"aproximadamente {p50_d:.1f} días ({p50_h:.0f} horas).",
+        "",
+        f"Para un nivel de confianza del 80% (P80), se recomienda planificar una duración de {p80_d:.1f} días ({p80_h:.0f} horas).",
+        "",
+        f"El esfuerzo total estimado para el equipo de {team_n} consultor(es) se encuentra entre {eff_mean_h:.0f} horas (promedio) y {eff_p80_h:.0f} horas (P80).",
+        f"Este reporte asume una eficiencia de equipo del {team_eff*100:.0f}% y una jornada de {horas_por_dia} horas/día."
+    ]
+    for line in text_lines:
+        c.drawString(x_margin, y, line)
+        y -= line_height
+    y -= 0.4*cm
+
     # Métricas
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(x_margin, y, "Resultados de la simulación")
+    c.drawString(x_margin, y, "Resultados Detallados de la Simulación")
     y -= 0.6*cm
     c.setFont("Helvetica", 10)
     c.drawString(x_margin, y, f"P50:  {p50_d:.2f} días  /  {p50_h:.0f} horas")
-    y -= 0.4*cm
     c.drawString(x_margin, y, f"P80:  {p80_d:.2f} días  /  {p80_h:.0f} horas")
-    y -= 0.4*cm
     c.drawString(x_margin, y, f"Media:{mean_d:.2f} días  /  {mean_h:.0f} horas")
-    y -= 0.4*cm
     c.drawString(x_margin, y, f"Esfuerzo medio: {eff_mean_h:.0f} h   |   Esfuerzo P80: {eff_p80_h:.0f} h")
     y -= 0.8*cm
 
